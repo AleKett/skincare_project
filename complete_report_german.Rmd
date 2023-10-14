@@ -1,0 +1,198 @@
+---
+title: 'Report: gesamt'
+author: "Alex, Berit"
+date: '2023-04-11'
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
+
+library(needs)
+needs(dplyr, magrittr, ggplot2, stringr, quanteda, quanteda.textstats, ggwordcloud)
+
+
+load('input/rossmann_products_new.RData')
+rossmann_df <- df
+rossmann_df$shop <- 'rossmann'
+
+load('input/dm_products.RData')
+dm_df <-  dm_df_reduced
+dm_df$shop <- 'dm'
+
+load('input/douglas_df_short.RData')
+douglas_df$shop <- 'douglas'
+
+df <- bind_rows(rossmann_df %>% dplyr::select(shop, product_name, brand_name, price, unit, price_base, ingredients),
+          dm_df %>% dplyr::select(shop, product_name = name, brand_name = brand, price, unit, price_base, ingredients) %>% mutate(ingredients = list(ingredients), price = as.numeric(price)), 
+          douglas_df %>% dplyr::select(shop, product_name, brand_name, price, unit, price_base, ingredients))
+
+df %<>% mutate(brand_name = str_trim(brand_name))
+
+```
+
+Skincare Produkte
+
+Wir haben `r df %>% nrow() %>% as.numeric()` Produkte von `r df %>% select(brand_name) %>% distinct() %>% nrow() %>% as.numeric()` verschiedenen Marken von Rossmann, DM und Douglas gescrapet (`r Sys.Date()`). Die Preise bewegen sich zwischen `r df %>% select(price) %>% min(na.rm = TRUE) %>% as.numeric()` und  `r df %>% select(price) %>% max(na.rm = TRUE) %>% as.numeric()` Euro. 
+
+## Häufigkeit der Shops
+
+```{r }
+
+df %>% group_by(shop) %>% summarise(n = n()) %>% ungroup() %>% 
+  arrange(desc(n)) %>% head(15) %>% 
+  ggplot(aes(x = n, y = reorder(shop, n))) + geom_col() + theme_bw() +
+  ylab('Shop') + xlab('Anzahl Produkte')
+
+
+```
+
+## Häufigkeit der Marken
+
+```{r }
+
+
+
+df  %>% group_by(brand_name) %>% summarise(n = n()) %>% ungroup() %>% 
+  arrange(desc(n)) %>% head(15) %>% 
+  ggplot(aes(x = n, y = reorder(brand_name, n))) + geom_col() + theme_bw() +
+  ylab('Marke') + xlab('Anzahl Produkte')
+
+
+```
+
+## Preise nach Marken
+
+```{r }
+
+DT::datatable(df %>% group_by(brand_name) %>% summarise(n = n(), min_price = min(price, na.rm = TRUE), max_price = max(price, na.rm = TRUE)) %>% arrange(desc(n)) %>% select(-n))
+
+
+```
+
+```{r }
+
+df %>% group_by(brand_name) %>% summarise(n = n(), min_price = min(price, na.rm = TRUE), max_price = max(price, na.rm = TRUE), mean_price = mean(price, na.rm = TRUE))  %>% filter(brand_name %in% c('Balea', 'ISANA', 'Lavera', 'La Roche-Posay', 'Nø Cosmetics', 'Eucerin', 'Junglück', 'Colibri Skincare', "Paula's Choice", 'NIVEA', 'Garnier', 'The Ordinary')) %>% arrange(desc(mean_price)) %>%
+  ggplot(aes(x = price, y = reorder(brand_name, -mean_price))) +
+  geom_segment(aes(x = min_price, xend = max_price,
+                  y = brand_name, yend = brand_name)) +
+  geom_point(aes(x = min_price, y = brand_name), size = 3, color = "blue") +
+  geom_point(aes(x = max_price, y = brand_name), size = 3, color = "red") +
+  geom_point(aes(x = mean_price, y = brand_name), size = 3, color = "black")
+```
+```{r }
+
+df %>%
+group_by(brand_name) %>%
+summarise(n = n(), min_price = min(price, na.rm = TRUE), max_price = max(price, na.rm = TRUE), mean_price = mean(price, na.rm = TRUE)) %>%
+filter(brand_name %in% c('Balea', 'ISANA', 'Lavera', 'La Roche-Posay', 'Nø Cosmetics', 'Eucerin', 'Junglück', 'Colibri Skincare', "Paula's Choice", 'NIVEA', 'Garnier', 'The Ordinary')) %>%
+arrange(desc(mean_price)) %>%
+ggplot(aes(x = price, y = reorder(brand_name, -mean_price))) +
+geom_segment(aes(x = min_price, xend = max_price, y = brand_name, yend = brand_name)) +
+geom_point(aes(x = min_price, y = brand_name), size = 3, color = "blue") +
+geom_point(aes(x = max_price, y = brand_name), size = 3, color = "red") +
+geom_point(aes(x = mean_price, y = brand_name), size = 3, color = "black")
+```
+
+
+
+```{r }
+df %>% group_by(brand_name) %>% summarise(n = n(), min_price = min(price, na.rm = TRUE), max_price = max(price, na.rm = TRUE), mean_price = mean(price, na.rm = TRUE)) %>% arrange(desc(mean_price)) %>% filter(n > 10) %>% head(15) %>% 
+  ggplot(aes(x = price, y = reorder(brand_name, -max_price))) +
+  geom_segment(aes(x = min_price, xend = max_price,
+                  y = brand_name, yend = brand_name)) +
+  geom_point(aes(x = min_price, y = brand_name), size = 3, color = "blue") +
+  geom_point(aes(x = max_price, y = brand_name), size = 3, color = "red") +
+  geom_point(aes(x = mean_price, y = brand_name), size = 3, color = "black")
+
+
+```
+
+Hier könnten wir auch noch auf ausgewählte Marken wechseln
+
+## Inhaltsstoffe
+
+```{r }
+
+source('long_format_ingredients.R')
+
+df_long %>% group_by(ingredients) %>% summarise(n = n()) %>% arrange(desc(n)) %>% head(20) %>% ggplot(aes(x = reorder(ingredients, n), y = n)) + geom_col() + coord_flip() 
+```
+
+Inhaltsstoffe und ihre durhschnittlichen Preise
+
+```{r }
+
+df_long %>% group_by(ingredients) %>% summarise(price = mean(price), n = n()) %>%
+filter(n > 120) %>% arrange(desc(price)) %>% head(20) %>% ggplot(aes(x = reorder(ingredients, price), y = price)) + geom_col() + coord_flip() 
+
+```
+
+```{r }
+
+df_long %>% group_by(ingredients) %>% summarise(price = mean(price), n = n()) %>%
+filter(n > 100) %>% arrange(price) %>% head(20) %>% ggplot(aes(x = reorder(ingredients, -price), y = price)) + geom_col() + coord_flip() 
+
+```
+
+
+# Häufige Begriffe bei den Inhaltsstoffen günstiger Produkte
+
+```{r }
+
+df_test <- df_long %>% group_by(product_name) %>% mutate(ing = paste0(ingredients, collapse = ' ')) %>% slice(1)
+
+
+df_test %<>% rowwise() %>% mutate(price_cat = ifelse(price < 3.25, 'very cheap', 
+                          ifelse(price < 5.99, 'rather cheap',
+                                 ifelse(price < 8.7, 'rather expensive',
+                                        ifelse(price < 11.99, 'very expensive', NA)))))
+
+
+
+dfm <- dfm(tokens(df_test$ing)) %>% dfm_trim(min_termfreq = 10, min_docfreq = 5)
+df_test$id <- 1:nrow(df_test)
+docvars(dfm, 'id') <- df_test$id
+docvars(dfm, 'price_cat') <- df_test$price_cat
+
+grouped_dfm <- dfm_group(dfm, groups = price_cat)
+
+exp <- textstat_keyness(grouped_dfm, target = 'very expensive') %>% as.data.frame() %>% 
+  filter(!feature %in% c('*', ','))
+
+
+cheap <- textstat_keyness(grouped_dfm, target = 'very cheap') %>% as.data.frame() %>% 
+  filter(!feature %in% c('*', ',', '.', '|', 'ci', '77000')) %>% 
+  mutate(feature = ifelse(feature == 'polyvinyl', 'polyvinyl alcohol', feature)) %>%  
+  mutate(feature = ifelse(feature %in% c('saccharide', 'isomerate'), 'isomerate saccharide', feature)) %>% 
+ mutate(feature = ifelse(feature %in% c('polyethylene', 'terephthalate'), 'polyethylene terephthalate', feature)) %>% 
+  mutate(feature = ifelse(feature %in% c('maris'), 'maris sal/aqua', feature)) %>% 
+  unique() %>% arrange(desc(chi2)) %>% head(10)
+
+cheap %>%  ggplot(aes(label=feature, size=chi2)) +
+  geom_text_wordcloud(eccentricity = 0.8, max_steps=5, grid_size=20, area_corr=T) +
+  scale_size_area(max_size = 10)
+```
+
+# Häufige Begriffe bei den Inhaltsstoffen teurer Produkte
+
+```{r }
+
+
+exp <- textstat_keyness(grouped_dfm, target = 'very expensive') %>% as.data.frame() %>% 
+  filter(!feature %in% c('*', ',', '.', '|', 'ci', '77000', '+', '/', '\\')) %>% rowwise() %>% 
+  mutate(feature = ifelse(feature == 'undecylenate', 'glyceryl undecylenate', feature)) %>%  
+  mutate(feature = ifelse(feature %in% c('sterols'), 'brassica campestris  sterols', feature)) %>% 
+ mutate(feature = ifelse(feature %in% c('abyssinica', 'crambe'), 'crambe abyssinica seed oil', feature)) %>% 
+  mutate(feature = ifelse(grepl('brassica', feature), 'brassica campestris sterols', feature)) %>% 
+  unique() %>% arrange(desc(chi2)) %>% head(10)
+
+exp  %>%  ggplot(aes(label=feature, size=chi2)) +
+  geom_text_wordcloud(eccentricity = 0.8, max_steps=5, grid_size=20, area_corr=T) +
+  scale_size_area(max_size = 10)
+
+```
+
+
+
